@@ -1,0 +1,46 @@
+
+1- Be in master then merge...
+git checkout master_branch
+git merge new_branch
+
+2-push changes to master
+git push origin master
+--------------------------------
+To add changes to new branch(checkout the branch first and edit)
+git add -all
+git commit -m "comments"
+
+
+To push changes to the branch
+git push origin branch_name
+
+
+--to delete branch after merge
+git branch -D branch_name
+
+
+
+
+
+
+<ig:TemplateColumn.ItemTemplate>
+     <DataTemplate>
+         <TextBlock Text="{Binding ExpiryDate, StringFormat=ddd d-MMM-yy}" ToolTip="{Binding DateToolTip}"/>
+     </DataTemplate>
+ </ig:TemplateColumn.ItemTemplate>
+
+
+
+<Grid.Resources>
+                    <Path x:Key="veticalPath" Stretch="Fill" Opacity="1" Data="M90, 90 L90, 0" Stroke="#FFB4B4B4" StrokeThickness="1" />
+                    <DataTemplate x:Key="Picstemplate">
+
+                        <Grid>
+                            <Border>
+                                <StackPanel Orientation="Vertical">
+                                    <TextBlock Text="{Binding Name}"/>
+                                    <Image Source="{Binding ProfilePicture}" Height="100" Width="100" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </DataTemplate>

@@ -1,0 +1,1101 @@
+
+
+//Model
+ private IDisposable QuoteChangesSubscription { get; }
+ QuoteChangesSubscription = LatestQuote.QuoteStream.Subscribe(
+                changes => OptionStrategy.ApplyQuoteChanges(changes),
+                err => Log.Error($"Issue in pricer quote changes stream subscription: {err.Message}"),
+                () => Log.Warn("Quote changes stream subscription completed.")
+            );
+        }
+
+//Other model
+#region Stream Subscription
+        private readonly Subject<IList<QuoteChangedEventArgs>> _stream = new Subject<IList<QuoteChangedEventArgs>>();
+        public IObservable<IList<QuoteChangedEventArgs>> QuoteStream => _stream;
+...
+if ( changes.Count > 0) _stream.OnNext(changes);
+
+-----------------------------------------------------
+
+
+namespace Focus.UI.Models.Pricer
+{
+    /// <summary>
+    /// Mutable version of Quote.
+    /// </summary>
+    public class QuoteModel : AbstractModelWithPropertyChanged
+    {
+
+        #region Constructor
+        public QuoteModel(int legsCount = 1)
+        {
+            _strikes = new double[legsCount]; 
+            _expiries = new DateTime[legsCount];
+            _volatilities = new BidAsk[legsCount];
+            _premiums = new BidAsk[legsCount];
+            _swaps = new BidAsk[legsCount];
+            _forwards = new BidAsk[legsCount];
+            _deltas = new double[legsCount];
+            _vegas = new double[legsCount];
+            _gammas = new double[legsCount];
+        }
+        #endregion Constructor
+
+        #region Properties
+        #region Stream Subscription
+        private readonly Subject<IList<QuoteChangedEventArgs>> _stream = new Subject<IList<QuoteChangedEventArgs>>();
+        public IObservable<IList<QuoteChangedEventArgs>> QuoteStream => _stream;
+        #endregion Stream Subscription
+
+        #region Market Data Updater
+        public MarketDataUpdate Updater { get; } = new MarketDataUpdate();        
+        #endregion Market Data Updater
+
+        #region New Stream
+        private bool _isNewStream;
+        public bool IsNewStream
+        {
+            get { return _isNewStream; }
+            private set { _isNewStream = value; OnPropertyChanged(); }
+        }
+        #endregion New Stream
+
+        #region Global Quotation Values
+        #region IsQuotationOn
+        private bool _isQuotationOn;
+        public bool IsQuotationOn
+        {
+            get { return _isQuotationOn; }
+            private set { _isQuotationOn = value; OnPropertyChanged(); }
+        }
+        #endregion IsQuotationOn
+
+        #region ErrorMessage
+        private string _errorMessage;
+        public string ErrorMessage
+        {
+            get { return _errorMessage; }
+            private set { _errorMessage = value; OnPropertyChanged(); }
+        }
+        #endregion ErrorMessage
+
+        #region Spot
+        private BidAsk _spot;
+        public BidAsk Spot
+        {
+            get { return _spot; }
+            internal set
+            {
+                _spot = value;
+                OnPropertyChanged();
+                OnPropertyChanged("ForwardPoints");
+                OnPropertyChanged("HedgeRate");
+            }
+
+        }
+        #endregion Spot
+
+        #region Hedge Amount
+        private double _hedgeAmount;
+        public double HedgeAmount
+        {
+            get { return ComputeHedgeNotional.Invoke(_hedgeAmount); }
+            internal set { _hedgeAmount = value; OnPropertyChanged(); } // we assume hedge amount from FOX is in ccy1
+        }
+        #endregion Hedge Amount
+
+        #region Rate        
+        private double _hedgeRate;
+
+        public double HedgeRate
+        {
+            get { return _hedgeRate; }
+            internal set { _hedgeRate = value; OnPropertyChanged(); }
+        }
+        #endregion  Rate
+
+        #region EUR Fixings
+        private double _eurFixingCcy1;
+        public double EURFixingCcy1
+        {
+            get { return _eurFixingCcy1; }
+            internal set { _eurFixingCcy1 = value; OnPropertyChanged(); }
+        }
+
+        private double _eurFixingCcy2;
+        public double EURFixingCcy2
+        {
+            get { return _eurFixingCcy2; }
+            internal set { _eurFixingCcy2 = value; OnPropertyChanged(); }
+        }
+        #endregion EUR Fixings
+        #endregion Global Quotation Values
+
+        #region Aggregated Quotation Values
+        #region Volatility
+        private BidAsk _vol;
+        public BidAsk Volatility
+        {
+            get { return _vol; }
+            internal set { _vol = value; OnPropertyChanged(); }
+        }
+        #endregion Volatility
+
+        #region Greeks
+
+        #region Vega
+        private double _vega;
+        public double Vega
+        {
+            get { return _vega; }
+            internal set { _vega = value; OnPropertyChanged(); }
+        }
+        #endregion Vega
+
+        #region Gamma
+        private double _gamma;
+        public double Gamma
+        {
+            get { return _gamma; }
+            internal set { _gamma = value; OnPropertyChanged(); }
+        }
+        #endregion Gamma
+
+        #region Delta        
+        private double _deltaCcy1;
+        private double _deltaCcy2;
+        private bool IsDeltaInCcy1 { get; set; } = true;
+        public double Delta => IsDeltaInCcy1 ? DeltaCcy1 : DeltaCcy2;
+
+        private double DeltaCcy1
+        {
+            get { return _deltaCcy1; }
+            set { _deltaCcy1 = value; OnPropertyChanged("Delta"); }
+        }
+        private double DeltaCcy2
+        {
+            get { return _deltaCcy2; }
+            set { _deltaCcy2 = value; OnPropertyChanged("Delta"); }
+        }
+
+        #endregion Delta
+        #endregion Greeks
+
+        #region Legs Greeks
+        #region Deltas
+        private readonly double[] _deltas;
+        private double LegsDeltas(double value, int legIndex)
+        {
+            _deltas[legIndex] = value;
+            return value;
+        }
+        public double LegsDeltas(int legIndex = 0) => _deltas[legIndex];
+        #endregion
+
+        #region Vegas
+        private readonly double[] _vegas;
+        private double LegsVegas(double value, int legIndex)
+        {
+            _vegas[legIndex] = value;
+            return value;
+        }
+        public double LegsVegas(int legIndex = 0) => _vegas[legIndex];
+        #endregion
+
+
+        private readonly double[] _gammas;
+        private double LegsGammas(double value, int legIndex)
+        {
+            _gammas[legIndex] = value;
+            return value;
+        }
+        public double LegsGammas(int legIndex = 0) => _gammas[legIndex];
+
+
+
+
+        #endregion legs Greeks
+
+        #region Premium Price
+
+        private double _bidNetPremium;
+        public double BidPremium
+        {
+            get { return _bidNetPremium; }
+            internal set { _bidNetPremium = value; OnPropertyChanged(); OnPropertyChanged("PremiumPrice"); }
+        }
+
+        private double _askNetPremium;
+        public double AskPremium
+        {
+            get { return _askNetPremium; }
+            internal set
+            {
+                _askNetPremium = value; OnPropertyChanged(); OnPropertyChanged("PremiumPrice");
+            }
+        }
+
+        public double PremiumPrice => 0.5 * (BidPremium + AskPremium);
+        #endregion
+        #endregion Aggregated Quotation Values
+
+
+        #region Per leg Quotation Values
+        #region Strike
+        private readonly double[] _strikes;
+        private double Strike(double value, int legIndex)
+        {
+            _strikes[legIndex] = value;
+            return value;
+        }
+        public double Strike(int legIndex = 0) => _strikes[legIndex];
+        #endregion Strike
+
+        #region Expiry
+        private readonly DateTime[] _expiries;
+        private DateTime Expiry(DateTime value, int legIndex)
+        {
+            _expiries[legIndex] = value;
+            return value;
+        }
+        public DateTime Expiry(int legIndex = 0) => _expiries[legIndex];
+        #endregion Expiry
+
+        #region Volatility
+        private readonly BidAsk[] _volatilities;
+        private BidAsk LegVolatility(BidAsk value, int legIndex)
+        {
+            _volatilities[legIndex] = value;
+            return value;
+        }
+        public BidAsk LegVolatility(int legIndex = 0) => _volatilities[legIndex];
+        #endregion Volatility
+
+        #region Premium
+        private readonly BidAsk[] _premiums;
+        private BidAsk LegPremium(BidAsk value, int legIndex)
+        {
+            _premiums[legIndex] = value;
+            return value;
+        }
+        public BidAsk LegPremium(int legIndex = 0) => _premiums[legIndex];
+        #endregion Premium
+
+        #region Swap Points
+        private readonly BidAsk[] _swaps;
+        private BidAsk LegSwapPoints(BidAsk value, int legIndex)
+        {
+            _swaps[legIndex] = value;
+            if (legIndex == 0) OnPropertyChanged("SwapPoints"); // old 1 leg model
+            return value;
+        }
+        public BidAsk LegSwapPoints(int legIndex = 0) => _swaps[legIndex];
+        public BidAsk SwapPoints => _swaps[0]; // // old 1 leg model
+        #endregion Swap Points
+
+        #region Forward Points
+        private readonly BidAsk[] _forwards;
+        private BidAsk LegForwardPoints(BidAsk value, int legIndex)
+        {
+            _forwards[legIndex] = value;
+            if (legIndex == 0) OnPropertyChanged("ForwardPoints"); // old 1 leg model
+            return value;
+        }
+        public BidAsk LegForwardPoints(int legIndex = 0) => _forwards[legIndex];        
+        public BidAsk ForwardPoints => _forwards[0]; // old 1 leg model
+        #endregion
+        #endregion Per leg Quotation Values
+
+        #endregion Properties
+
+        private List<LegQuoteModel> _legQuoteModels = null;
+        [Obsolete("to be deleted and replaced by stream subscription")]
+        public List<LegQuoteModel> LegQuoteModels
+        {
+            get { return _legQuoteModels; }
+            set
+            {
+                _legQuoteModels = value;
+                OnPropertyChanged();
+            }
+        }
+
+
+
+        #region Vol Surface
+        private IList<VolSurfaceEntry> volSurfaceCollection;
+
+        public IList<VolSurfaceEntry> VolSurfaceCollection
+        {
+            get
+            {
+                if (volSurfaceCollection == null) volSurfaceCollection = new List<VolSurfaceEntry>();
+                return volSurfaceCollection;
+            }
+            set { volSurfaceCollection = value; OnPropertyChanged(); }
+        }
+        #endregion
+
+        #region Simple Hedge Notional Conversion
+        private Func<double, double> ComputeHedgeNotional { get; set; } = notional => notional;
+        public void UpdateHedgeNotionalComputation(Interfaces.CurrencyMode ccyMode)
+        {
+            if (ccyMode == Interfaces.CurrencyMode.Ccy1)
+            {
+                ComputeHedgeNotional = notional => notional;
+            }
+            else
+            {
+                ComputeHedgeNotional = notional => notional * HedgeRate;
+            }
+            OnPropertyChanged("HedgeAmount");            
+        }
+        #endregion Simple Hedge Notional Conversion
+
+     
+
+        #region Core Function: New Quote Handling
+        public void OnNewQuote(Quote quote)
+        {
+            // just in case
+            if (quote == null || quote.Legs.Count == 0) return;
+
+            if (Log.IsDebugEnabled) Log.Debug($"New quote: {quote}");
+
+            // check if the incoming quote is coming from a different stream than the previous ones
+            IsNewStream = CurrentQuoteRequestId == null || !CurrentQuoteRequestId.Equals(quote.QuoteRequestId);
+            if (IsNewStream) OnNewStream();
+            CurrentQuoteRequestId = quote.QuoteRequestId;
+
+            #region Global Values
+            // we take first leg for that, but maybe the Quote model should evoluate to that matters
+            var firstLeg = quote.Legs[0];
+
+            #region Error Info
+            if  ( firstLeg.Info?.IsQuotationOn != null )  IsQuotationOn = firstLeg.Info.IsQuotationOn.Value;
+            ErrorMessage = firstLeg.Info?.PlatformError;
+            #endregion Error Info
+
+            #region Spot, Hedge Rate and Amount
+            if (firstLeg.MarketData != null)
+            {
+                #region Spot
+                var bidSpot = firstLeg.MarketData.Spot?.Bid ?? double.NaN;
+                var askSpot = firstLeg.MarketData.Spot?.Ask ?? double.NaN;
+                if (!double.IsNaN(bidSpot) || !double.IsNaN(askSpot))
+                    Spot = new BidAsk
+                    {
+                        Bid = double.IsNaN(bidSpot) ? Spot.Bid : bidSpot,
+                        Ask = double.IsNaN(askSpot) ? Spot.Ask : askSpot,
+                    };
+                #endregion Spot
+
+                #region Hedge Amount
+                if (firstLeg.MarketData.SpotQuantityToHedge.HasValue) HedgeAmount = firstLeg.MarketData.SpotQuantityToHedge.Value;
+                #endregion Hedge Amount
+
+                #region Hedge Rate                
+                if (firstLeg.MarketData.HedgeRate.HasValue) HedgeRate = firstLeg.MarketData.HedgeRate.Value;
+                #endregion Hedge Rate
+            }
+            #endregion Spot, Hedge Rate and Amount
+
+            #region EUR fixings
+            if (firstLeg.Ccy1InEUR.HasValue) EURFixingCcy1 = firstLeg.Ccy1InEUR.Value;
+            if (firstLeg.Ccy2InEUR.HasValue) EURFixingCcy2 = firstLeg.Ccy2InEUR.Value;
+            #endregion EUR fixings
+            #endregion Global Values
+
+            #region Aggregated Values
+            if (quote.Aggregation != null)
+            {
+                var aggregation = quote.Aggregation;
+
+                #region Volatility
+                var bidVolatility = aggregation.Pricing?.Volatility?.Bid ?? double.NaN;
+                var askVolatility = aggregation.Pricing?.Volatility?.Ask ?? double.NaN;
+
+
+                if (!double.IsNaN(bidVolatility) || !double.IsNaN(askVolatility))
+                    Volatility = new BidAsk
+                    {
+                        Bid = double.IsNaN(bidVolatility) ? Volatility.Bid : bidVolatility,
+                        Ask = double.IsNaN(askVolatility) ? Volatility.Ask : askVolatility,
+                    };
+                #endregion Volatility
+
+                #region Pricing
+                if (aggregation.Pricing?.Premium != null)
+                {
+                    BidPremium = double.IsNaN(aggregation.Pricing.Premium.Value.Bid) ? BidPremium : aggregation.Pricing.Premium.Value.Bid;
+                    AskPremium = double.IsNaN(aggregation.Pricing.Premium.Value.Ask) ? AskPremium : aggregation.Pricing.Premium.Value.Ask;
+                }
+
+                #endregion Pricing
+
+                #region Greeks
+                if (aggregation.Risks != null)
+                {
+                    if (aggregation.Risks.DeltaCcy1.HasValue) DeltaCcy1 = aggregation.Risks.DeltaCcy1.Value;
+                    if (aggregation.Risks.DeltaCcy2.HasValue) DeltaCcy2 = aggregation.Risks.DeltaCcy2.Value;
+                    if (aggregation.Risks.Gamma.HasValue) Gamma = aggregation.Risks.Gamma.Value;
+                    if (aggregation.Risks.Vega.HasValue) Vega = aggregation.Risks.Vega.Value;
+                }
+                #endregion Greeks
+            }
+            #endregion Aggregated Values
+
+            #region Per Leg Values
+            // For leg data, we want to provide two mechanisms to access data:
+            //  - one is the notification via the ability for clients to subscribe to Stream.
+            //  - the second one is on-demand (via the getter_xxx(Int legIndex) accessors methods. For that we need to save the value.
+            var changes = new List<QuoteChangedEventArgs>();
+           
+            for (var legIndex = 0; legIndex < quote.Legs.Count; legIndex++)
+            {
+                var leg = quote.Legs[legIndex];
+
+                if (leg.MarketData != null)
+                {
+                    #region Strike
+                    if ( leg.Strike?.Strike != null ) changes.Add(new QuoteChangedEventArgs(Strike(leg.Strike.Strike.Value, legIndex), "Strike", legIndex));
+                    #endregion Strike
+
+                    #region Expiry
+                    if (leg.Expiry?.Date != null) changes.Add(new QuoteChangedEventArgs(Expiry(leg.Expiry.Date.Value, legIndex), "Expiry", legIndex));
+                    #endregion Expiry
+
+                    #region Volatility
+                    var bidVolatility = leg.Pricing?.Volatility?.Bid;
+                    var askVolatility = leg.Pricing?.Volatility?.Ask;
+
+                    if (bidVolatility.HasValue || askVolatility.HasValue)
+                    {                        
+                        var volatility = new BidAsk
+                        {
+                            Bid = bidVolatility.Value,
+                            Ask = askVolatility.Value,
+                        };
+                        changes.Add(new QuoteChangedEventArgs(LegVolatility(volatility, legIndex), "Volatilities", legIndex));                        
+                    }
+                    #endregion Volatility
+
+                    #region Premium
+                    var bidPremium = leg.Pricing?.Premium?.Bid;
+                    var askPremium = leg.Pricing?.Premium?.Ask;
+
+                    if (bidPremium.HasValue || askPremium.HasValue)
+                    {
+                        var premium = new BidAsk
+                        {
+                            Bid = bidPremium.Value,
+                            Ask = askPremium.Value,
+                        };
+                        changes.Add(new QuoteChangedEventArgs(LegPremium(premium, legIndex), "Premiums", legIndex));
+                    }
+                    #endregion Premium
+
+                    #region Swap
+                    var bidSwapPoints = leg.MarketData.SwapPoints?.Bid;
+                    var askSwapPoints = leg.MarketData.SwapPoints?.Ask;
+                    if (bidSwapPoints.HasValue || askSwapPoints.HasValue)
+                    {
+                        var swapPoints = new BidAsk
+                        {
+                            Bid = bidSwapPoints.Value,
+                            Ask = askSwapPoints.Value,
+                        };
+                        changes.Add(new QuoteChangedEventArgs(LegSwapPoints(swapPoints, legIndex), "LegSwapPoints", legIndex));                        
+                    }
+
+                    #endregion Swap
+
+                    #region Forwards
+                    var bidForward = leg.MarketData.ForwardPoints?.Bid;
+                    var askForward = leg.MarketData.ForwardPoints?.Ask;
+                    if (bidForward.HasValue || askForward.HasValue)
+                    {
+                        var forwards = new BidAsk
+                        {
+                            Bid = bidForward.Value,
+                            Ask = askForward.Value,
+                        };
+                        changes.Add(new QuoteChangedEventArgs(LegForwardPoints(forwards, legIndex), "LegForwardPoints", legIndex));
+                    }
+                    #endregion Forward
+                }
+                #region Greeks
+                double deltaCcy1 = 0D;
+                double deltaCcy2 = 0D;
+
+                if (leg.Risks == null) continue;
+
+                //Push values...
+                if (leg.Risks.DeltaCcy1.HasValue) deltaCcy1 = leg.Risks.DeltaCcy1.Value;
+                if (leg.Risks.DeltaCcy2.HasValue) deltaCcy2 = leg.Risks.DeltaCcy2.Value;
+                changes.Add(new QuoteChangedEventArgs(LegsDeltas(IsDeltaInCcy1 ? deltaCcy1 : deltaCcy2, legIndex), "LegDeltas", legIndex));
+
+                if (leg.Risks.Gamma.HasValue)
+                    changes.Add(new QuoteChangedEventArgs(LegsGammas(leg.Risks.Gamma.Value, legIndex), "Gamma", legIndex));
+    
+                if (leg.Risks.Vega.HasValue)
+                    changes.Add(new QuoteChangedEventArgs(LegsVegas(leg.Risks.Vega.Value, legIndex), "Vega", legIndex));
+
+                #endregion Greeks                
+            }
+
+            if ( changes.Count > 0) _stream.OnNext(changes);
+
+
+            #endregion Per Leg Values
+
+        }
+
+        public BidAsk? LegsMidBidAsk => ((LegVolatility(0) + LegVolatility(1)) * 0.5);                                  
+
+        public string LegsMid => $"{LegsMidBidAsk.Value.Bid.ToString("F2") } / {LegsMidBidAsk.Value.Ask.ToString("F2")}";
+
+        public double? Mid => 0.5 * (Volatility.Bid + Volatility.Ask);
+
+
+
+        #endregion Core Function: New Quote Handling
+
+        #region Private Parts
+
+        private string CurrentQuoteRequestId { get; set; }
+        private ILog Log { get; } = LogManager.GetLogger(typeof(QuoteModel));
+
+        #region Behaviors
+        private void OnNewStream()
+        {
+            Updater.Reset();
+        }        
+        #endregion Behaviors
+
+        #endregion Private Parts
+    }
+}
+
+----------------------------
+
+{
+
+    /*
+     * TODO: implement the behavior to send back a RFQ when we have an update on the OptionStrategy.
+     * NB: we will need to re-use the same quotation channel and also to create an new StrategyDescription message
+     *      out of the current Option Strategy.
+     *      We should more likely to have some interaction with the user to ask for a repricing, to avoid multiple RFQ for nothing. 
+     */
+    public class PricerModel : AbstractModelWithPropertyChanged, IPricerModel
+    {
+        #region Construction / Destruction
+        public PricerModel(DisplayStrategy displayStrategy, IPricerFactories factories = null, bool isTrader=false)
+        {
+            // creates the quote model according to the strategy
+            LatestQuote = new QuoteModel(displayStrategy.Rfq.Strategy.Options.Count);
+
+            var pricerFactories = factories ?? new PricerFactories(displayStrategy.Channel);
+            //IsDealble = true;
+            Rfq = displayStrategy.Rfq;
+            OptionStrategy = pricerFactories.CreateStrategyModel(displayStrategy.Rfq.Strategy);
+            OptionQuotation = pricerFactories.CreateQuotationModel();
+            PricerSettings = pricerFactories.CreatePricerSettingsModel(OptionStrategy);
+            IsTraderScreen = isTrader;
+
+            // we want to subscribe to quote model changes to update the bid/ask
+            LatestQuote.PropertyChanged += PropagatePropertyChange;
+
+
+            // we want to be alerted in case of a change in the settings            
+            PricerSettings.PropertyChanged += PropagatePropertyChange;
+
+            // OptionStrategy needs to know the expiry provided by the quotation in case of an update is provided.
+            // We have the pricer model subscribe to the quotation to pass this information to the strategy.
+            QuotationSubscription = OptionQuotation.Quotes.Subscribe(
+                OnQuote,
+                err => _logger.Error($"Error while subscribing to quotation: {err.Message}"),
+                () => _logger.Warn("Done with quotation subscription."));
+
+            // LatestQuote provides the changes due to the latest quote.
+            // We want to subscribe to them to dispatch to the sub-models, like OptionStrategy
+            QuoteChangesSubscription = LatestQuote.QuoteStream.Subscribe(
+                changes => OptionStrategy.ApplyQuoteChanges(changes),
+                err => Log.Error($"Issue in pricer quote changes stream subscription: {err.Message}"),
+                () => Log.Warn("Quote changes stream subscription completed.")
+            );
+        }
+
+
+
+        public void Dispose()
+        {
+            QuotationSubscription?.Dispose();
+            QuoteChangesSubscription?.Dispose();
+            PricerSettings.PropertyChanged -= PropagatePropertyChange;
+            LatestQuote.PropertyChanged -= PropagatePropertyChange;
+        }
+        #endregion Construction / Destruction
+
+        #region Properties
+        private readonly ILog _logger = LogManager.GetLogger(typeof(PricerModel));
+
+        #region Sub-models
+        public IOptionStrategyModel OptionStrategy { get; set;}
+        public IOptionQuotationModel OptionQuotation { get; }
+        public IPricerSettingsModel PricerSettings { get; }
+        public QuoteModel LatestQuote { get; }
+        #endregion Sub-models
+
+        #region Property Observation
+        public PropertyObserver PropertyObserver { get; } = new PropertyObserver();
+        #endregion Property Observation
+
+        #region RFQ properties
+        private RFQ Rfq { get; set; }
+        private IDisposable QuotationSubscription { get; }
+        private IDisposable QuoteChangesSubscription { get; }
+
+        public string CorrId => Rfq.CorrId;
+        
+        public double? Bid =>
+            PricerSettings.PriceExpression == PriceExpressionType.InVolatility
+            ? LatestQuote.Volatility.Bid
+            : LatestQuote.BidPremium;
+
+        public double? Ask =>
+            PricerSettings?.PriceExpression == PriceExpressionType.InVolatility
+            ? LatestQuote.Volatility.Ask
+            : LatestQuote.AskPremium;
+
+        public double? Mid => 0.5 * (Bid + Ask);
+      
+
+        #region VOL only prices
+        public double? VolBid => LatestQuote.Volatility.Bid;
+        public double? VolAsk => LatestQuote.Volatility.Ask;
+        public double? VolMid => 0.5 * (Bid + Ask);
+        #endregion
+
+        #region PREMIUM only prices
+        public double? PremiumBid => LatestQuote.BidPremium;
+        public double? PremiumAsk => LatestQuote.AskPremium;
+        public double? PremiumMid => 0.5 * (PremiumBid + PremiumAsk);
+
+
+        #endregion
+
+        public string SalesBid { get; set; }
+
+        public string SalesAsk { get; set; }
+        #endregion RFQ properties
+
+        #region Pricer State
+        public bool IsDealble { get; } = true;  //TODO implement logic
+        public bool IsTraderScreen { get;}
+        #endregion Pricer State
+
+        #endregion Properties
+
+        #region Pricer Interface
+        public void Price(IEnumerable<PropertyEvent> updates)
+        {
+            // right now, we just re-price the current rfq
+            if (updates == null) return;
+
+            // here, we don't really know what the updates are about, but we want to ask the entities impacted by those changes 
+            // to propagate the changes, as we are going to ask the pricer's components to provide us with the information
+            // necessary to generate a RFQ and re-price.
+            foreach (var propertyEvent in updates.GroupBy(p => p.Subject))
+            {
+                propertyEvent.Key.ApplyPropertyEventsInBulk(propertyEvent);                
+            }
+            // generate RFQ now            
+            Rfq = BuildRFQUponChanges(updates);
+
+            OptionQuotation.StartQuotation(Rfq);
+
+            PropertyObserver.Reset();
+        }
+
+        public void Rollback(IEnumerable<PropertyEvent> updates)
+        {            
+            if (updates == null) return;
+            
+            foreach (var propertyEvent in updates.GroupBy(p => p.Subject))
+            {
+                propertyEvent.Key.RollbackPropertyEventsInBulk(propertyEvent);
+            }
+            PropertyObserver.Reset();
+        }
+
+        public void PassOnRfq(string reason)
+        {
+            //send to channel
+            OptionQuotation.StopQuotationUponPassOn(OptionStrategy, reason);
+        }
+
+        private bool _isPricerOn;
+
+        public bool IsPricerOn
+        {
+            get { return _isPricerOn; }
+            set { _isPricerOn = value; OnPropertyChanged(); }
+        }
+        #endregion Pricer Interface
+
+        #region Private Behaviors
+        private void OnQuote(Quote quote)
+        {
+            LatestQuote.OnNewQuote(quote);
+
+            // just to keep the one leg working, but that should be move out
+            var strategyModel = OptionStrategy as SingleLegOptionStrategyModel;
+
+            if (strategyModel == null) return;
+            if (quote.Legs[0].Expiry?.Date != null) strategyModel.Expiry = quote.Legs[0].Expiry.Date.Value;
+            if (quote.Legs[0].Strike?.Strike != null) strategyModel.Strike = quote.Legs[0].Strike.Strike.Value;
+        }
+
+        
+        protected override void PropagatePropertyChange(object sender, PropertyChangedEventArgs e)
+        {
+            base.PropagatePropertyChange(sender, e);
+            
+            if (sender == PricerSettings)
+            {
+                if (e.PropertyName.Equals("GreeksUnit") || e.PropertyName.Equals("PremiumType") || e.PropertyName.Equals("PremiumUnit"))
+                {
+                    PriceUponSettingsChanged();
+                }
+                else if (e.PropertyName.Equals("HedgeCurrency"))
+                {
+                    //TODO
+                    LatestQuote.UpdateHedgeNotionalComputation(PricerSettings.HedgeCurrency);
+                }                
+                else if (e.PropertyName.Equals("PriceExpression"))
+                {
+                    OnPropertyChanged("Bid");
+                    OnPropertyChanged("Ask");
+                    OnPropertyChanged("Mid");
+                }
+            }
+            else if (sender == LatestQuote)
+            {
+                if (e.PropertyName.Equals("IsQuotationOn")) IsPricerOn = LatestQuote.IsQuotationOn;
+
+                else if (!e.PropertyName.Equals("Volatility") && !e.PropertyName.Equals("PremiumPrice")) return;
+
+                OnPropertyChanged("Bid");
+                OnPropertyChanged("Ask");
+                OnPropertyChanged("Mid");
+                OnPropertyChanged("PremiumBid");
+                OnPropertyChanged("PremiumAsk");
+            }          
+        }
+
+        private ILog Log { get; } = LogManager.GetLogger(typeof (PricerModel));
+
+        private void PriceUponSettingsChanged()
+        {
+
+            // we just need to update the settings
+            var settings = new SettingsBuilder
+            {
+                RisksUnit = PricerSettings.GreeksUnit.ToRisksUnit(),
+                PremiumType = PricerSettings.PremiumType.ToPremiumType(),
+                PremiumUnit = PricerSettings.PremiumUnit.ToPremiumUnit()
+            };
+            var rfq = new RFQ(
+                Rfq.QuoteReqId,
+                null,
+                settings: settings,
+                isUpdate: true);
+            OptionQuotation.StartQuotation(rfq);
+        }
+
+        
+        private RFQ BuildRFQUponChanges(IEnumerable<PropertyEvent> updates)
+        {
+            //TODO: Build a list of MarketData (one per leg) and pass it to the RFQ constructor
+
+
+            // we need to analyze the updates to find out about the nature of the changes.
+            // 1) it can be a 'brand new' rfq if symbol, notional, expiry, strike, put/call involved.
+            // 2) it can be the same rfq with marketdata changes: vol, spot, fwd
+            // 3) it can be the same rfq with hedge type change
+            // 4) a combination of above
+            var brandNew = false;
+            var newMarketData = false;
+            var newHedgeType = false;            
+            BidAsk? spot = null;
+            BidAsk? vol = null;
+            BidAsk? swap = null;
+            IList<BidAsk?> volatilities = null;
+            IList<BidAsk?> legSwaps = null;
+
+            foreach (var propertyEvent in updates)
+            {
+                switch (propertyEvent.Name)
+                {
+                    case "Symbol":
+                    case "Notional":
+                    case "Strike":
+                    case "Expiry":
+                    case "PutOrCall":
+                        brandNew = true;
+                        break;
+                    case "Volatility":
+                        vol = propertyEvent.Value as BidAsk?;
+                        newMarketData = true;
+                        break;
+                    case "Spot":                        
+                        spot = propertyEvent.Value as BidAsk?;                        
+                        newMarketData = true;
+                        break;
+                    case "SwapPoints":
+                        swap = propertyEvent.Value as BidAsk?;
+                        newMarketData = true;
+                        break;
+                    case "HedgeType":
+                        newHedgeType = true;
+                        break;
+                    case "Volatilities":
+                        volatilities = propertyEvent.Value as IList<BidAsk?>;
+                        newMarketData = true;
+                        break;
+                        ;
+                    case "LegSwapPoints":
+                        legSwaps = propertyEvent.Value as IList<BidAsk?>;
+                        newMarketData = true;
+                        break;
+                        ;
+                }
+                                 
+            }
+
+            // Rules:
+            // 1) if we have a hedge type, we need to provide market data
+            // 2) when we provide market data, we also need to provide the strategy
+            IList<MarketDataBuilder> marketData = null;
+            var settings = new SettingsBuilder
+            {
+                RisksUnit = PricerSettings.GreeksUnit.ToRisksUnit(),
+                PremiumType = PricerSettings.PremiumType.ToPremiumType(),
+                PremiumUnit = PricerSettings.PremiumUnit.ToPremiumUnit()
+            };
+            StrategyDescription strategy = null;
+            if (newHedgeType)
+            {
+                marketData = new List<MarketDataBuilder>
+                {
+                    new MarketDataBuilder
+                    {
+                        HedgeRate =
+                            PricerSettings.HedgeType == HedgeType.Forward
+                                ? LatestQuote.ForwardPoints.Mid
+                                : LatestQuote.Spot.Mid,
+                        SpotQuantityToHedge = LatestQuote.HedgeAmount
+                    }
+                };
+                
+                settings.HedgeType = PricerSettings.HedgeType.ToHedgeType();
+                
+                strategy = OptionStrategy.GenerateStrategyDescription();
+
+            } else if (newMarketData)
+            {
+                // one leg case 
+                if (volatilities == null && legSwaps == null)
+                {
+                    marketData = new List<MarketDataBuilder>
+                    {
+                        new MarketDataBuilder
+                        {
+                            //todo: remplacer les valeurs par celles de l'update
+                            BidVolatility = vol?.Bid,
+                            AskVolatility = vol?.Ask,
+                            BidSpot = spot?.Bid,
+                            AskSpot = spot?.Ask,
+                            BidSwapPoints = swap?.Bid,
+                            AskSwapPoints = swap?.Ask,
+                        }
+                    };
+                }
+                else
+                {
+                    // two legs case
+                    marketData = new List<MarketDataBuilder> {
+                        new MarketDataBuilder
+                        {
+                            //todo: remplacer les valeurs par celles de l'update
+                            BidVolatility = volatilities?[0]?.Bid,
+                            AskVolatility = volatilities?[0]?.Ask,
+                            BidSpot = spot?.Bid ,
+                            AskSpot = spot?.Ask,
+                            BidSwapPoints = legSwaps?[0]?.Bid,
+                            AskSwapPoints = legSwaps?[0]?.Ask,
+                        },
+                        new MarketDataBuilder
+                        {
+                            //todo: remplacer les valeurs par celles de l'update
+                            BidVolatility = volatilities?[1]?.Bid,
+                            AskVolatility = volatilities?[1]?.Ask,
+                            BidSpot = spot?.Bid ,
+                            AskSpot = spot?.Ask,
+                            BidSwapPoints = legSwaps?[1]?.Bid,
+                            AskSwapPoints = legSwaps?[1]?.Ask,
+                        }
+                    };
+                }                
+                strategy = OptionStrategy.GenerateStrategyDescription();
+            } else if (brandNew)
+            {
+                strategy = OptionStrategy.GenerateStrategyDescription();
+            }            
+            return new RFQ(Rfq.QuoteReqId, strategy, marketData, settings, true);
+        }
+        #endregion Private Behaviors        
+    }
+}
+
+
+
+//VM
+
+namespace Focus.UI.ViewModels.Pricer
+{
+    internal class PricerViewModel : AbstractPricerControlViewModel, IPricerModelProvider
+    {
+
+        #region Properties        
+        public string PricingError => PricerModel?.LatestQuote.ErrorMessage;
+        public bool IsPricerOn => PricerModel?.IsPricerOn?? false;
+
+        #region Popup Management
+        public ReadOnlyObservableCollection<PropertyEvent> TrackedProperties => PricerModel?.PropertyObserver.PropertyEvents;
+        public bool TrackedPropertiesVisible => TrackedProperties?.Count > 0;
+        #endregion Popup Management
+
+        #region Expansion Management
+        private ObservableDictionary<string, bool> isExpanded = new ObservableDictionary<string, bool>();
+        public ObservableDictionary<string, bool> IsExpanded
+        {
+            get { return isExpanded; }
+            set { isExpanded = value; OnPropertyChanged();}
+        }
+        #endregion Expansion Management
+        #endregion Properties
+
+        #region Commands
+        public ICommand RepriceCommand { get; }
+        public ICommand AbandonGiveUpPriceCommand { get; }
+
+        public ICommand TogglXpanderCommand { get; }
+        #endregion Commands
+
+        #region Models
+        public IPrincingTriggersModel PrincingTriggersModel { get; set; }
+        #endregion Models
+
+        #region IpricerModelProvider interface
+        // pricerViewModel is itself a pricer model provider for its own controls.
+        public event PricerModelChangedEventHandler PricerChanged;
+        public event Action<OptionType> OptionTypeChanged;
+        #endregion IpricerModelProvider interface
+
+        public PricerViewModel()
+        {IsExpanded
+            .Add("TopXpander", true);
+            IsExpanded.Add("ChatXpander", false);
+            RepriceCommand = new RelayCommand(obj =>
+            {
+                if (PricerModel != null) PrincingTriggersModel?.OnPricingRequested(PricerModel);
+            });
+
+            AbandonGiveUpPriceCommand = new RelayCommand(obj =>
+            {
+                if (PricerModel != null) PrincingTriggersModel?.OnPricingAbandoned(PricerModel);
+            });
+
+            TogglXpanderCommand = new RelayCommand((param) =>
+            {
+                var part = param as string;
+                if (part == null) return;
+                if (part == "top")
+                {
+                    IsExpanded["TopXpander"] = !IsExpanded["TopXpander"];
+                } 
+                else
+                {
+                    IsExpanded["ChatXpander"] = !IsExpanded["ChatXpander"];
+                }
+            });
+        }
+        
+        
+        #region Behaviors
+        protected override void UnsubscribeOnModelChanges()
+        {
+            if ( PricerModel == null) return;
+            PricerModel.PropertyChanged -= PricerModel_PropertyChanged;
+
+            if (PricerModel.PropertyObserver == null) return;
+            PricerModel.PropertyObserver.PropertyChanged -= PropertyObserver_PropertyChanged;
+        }
+
+        protected override void OnOptionTypeAssigned(OptionType type)
+        {
+            OptionTypeChanged.Invoke(type);
+        }
+
+        protected override void OnPricerModelAssigned(IPricerModel pricerModel)
+        {            
+            // let its own controls to know about the new pricer model
+            PricerChanged?.Invoke(PricerModel);
+           
+            if ( pricerModel != null && PricerModel.PropertyObserver != null) PricerModel.PropertyObserver.PropertyChanged += PropertyObserver_PropertyChanged;
+            
+            if ( pricerModel != null ) PricerModel.PropertyChanged += PricerModel_PropertyChanged;            
+        }
+
+
+        bool HadError = false;
+        private void PricerModel_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            OnPropertyChanged("PricingError");
+            OnPropertyChanged("IsPricerOn");
+    
+            if(!string.IsNullOrEmpty(PricingError))
+            {
+                var newRes = (LinearGradientBrush)Application.Current.Resources["fxErrHeaderBackgroundBrush1"];
+                Application.Current.Resources["fxErrHeaderBackgroundBrush"] = newRes;
+                HadError = true;
+            }
+            else
+            {
+                // Let's reset it only once..
+                if(HadError)
+                {
+                    var reset = (LinearGradientBrush)Application.Current.Resources["fxHeaderBackgroundBrush"];
+                    Application.Current.Resources["fxErrHeaderBackgroundBrush"] = reset;
+                    HadError = false;
+                }
+            }
+        }
+
+        private void PropertyObserver_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            RefreshAllBindings();
+        }
+
+        protected override void RefreshAllBindings()
+        {
+            OnPropertyChanged("TrackedProperties");
+            OnPropertyChanged("TrackedPropertiesVisible");            
+        }        
+        #endregion Behaviors
+
+    }    
+}
